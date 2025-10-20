@@ -37,14 +37,19 @@ func ParseLocations(fs fs.FS, rootDir string) (Locations, error) {
 // parseDir recursively parses all resource and module source locations from the
 // specified directory.
 func parseDir(fs fs.FS, dir string, modAddr string) (Locations, error) {
-	mod, err := parseModuleDir(fs, dir)
+	mod, err := readModuleFromDir(fs, dir)
 	if err != nil {
 		return nil, fmt.Errorf("parse %s: %w", dir, err)
 	}
 
+	var baseAddr string
+	if modAddr != "" {
+		baseAddr = modAddr + "."
+	}
 	resourceLocations := make(Locations)
 	for name, file := range mod {
-		rl, err := parseBlocks(fs, file, name, dir, modAddr)
+		fp := filepath.Join(dir, name)
+		rl, err := parseBlocks(fs, file, fp, baseAddr)
 		if err != nil {
 			return nil, fmt.Errorf("parse modules for %s: %w", filepath.Join(dir, name), err)
 		}
@@ -54,7 +59,7 @@ func parseDir(fs fs.FS, dir string, modAddr string) (Locations, error) {
 	return resourceLocations, nil
 }
 
-func parseBlocks(fs fs.FS, file *hcl.File, fileName, dir, modAddr string) (Locations, error) {
+func parseBlocks(fs fs.FS, file *hcl.File, filePath, baseAddr string) (Locations, error) {
 	content, _, diag := file.Body.PartialContent(&hcl.BodySchema{
 		Blocks: []hcl.BlockHeaderSchema{
 			// resource "resource_type" "resource_name" { ... }
@@ -67,15 +72,8 @@ func parseBlocks(fs fs.FS, file *hcl.File, fileName, dir, modAddr string) (Locat
 		return nil, diag
 	}
 
-	fp := filepath.Join(dir, fileName)
-	rl := make(Locations)
-
-	var baseAddr string
-	if modAddr != "" {
-		baseAddr = modAddr + "."
-	}
-
 	ctx := &hcl.EvalContext{}
+	rl := make(Locations)
 	for _, block := range content.Blocks {
 		attrs, diag := block.Body.JustAttributes()
 		if diag.HasErrors() {
@@ -88,7 +86,7 @@ func parseBlocks(fs fs.FS, file *hcl.File, fileName, dir, modAddr string) (Locat
 			resAddr = baseAddr + block.Labels[0] + "." + block.Labels[1]
 			for _, attr := range attrs {
 				fieldAddr := resAddr + "#" + attr.Name
-				rl[fieldAddr] = &Location{File: fp, Line: attr.Range.Start.Line}
+				rl[fieldAddr] = &Location{File: filePath, Line: attr.Range.Start.Line}
 			}
 
 		case "module":
@@ -96,37 +94,37 @@ func parseBlocks(fs fs.FS, file *hcl.File, fileName, dir, modAddr string) (Locat
 			resAddr = baseAddr + "module." + modName
 			source, ok := attrs["source"]
 			if !ok {
-				return nil, fmt.Errorf("%s: module %q is missing %q attribute", fp, modName, "source")
+				return nil, fmt.Errorf("%s: module %q is missing %q attribute", filePath, modName, "source")
 			}
-			srcExpr, diag := source.Expr.Value(ctx)
+			src, diag := source.Expr.Value(ctx)
 			if diag.HasErrors() {
 				return nil, diag
 			}
-			src := srcExpr.AsString()
+			s := src.AsString()
 
-			if !strings.HasPrefix(src, "./") && !strings.HasPrefix(src, "../") {
+			if !strings.HasPrefix(s, "./") && !strings.HasPrefix(s, "../") {
 				// If the source of the module is not in the fs, such as with Git repo sources,
 				// add a globbing wildcard to indicate this.
-				rl[resAddr+".*"] = &Location{File: fp, Line: block.DefRange.Start.Line}
+				rl[resAddr+".*"] = &Location{File: filePath, Line: block.DefRange.Start.Line}
 
 			} else {
 				// Otherwise, continue to parse submodule directories until not more are found.
-				submodRL, err := parseDir(fs, filepath.Join(dir, src), resAddr)
+				submodRL, err := parseDir(fs, filepath.Join(filepath.Dir(filePath), s), resAddr)
 				if err != nil {
-					return nil, fmt.Errorf("%s: module %s: parse submodule %s: %w", fp, modAddr, modName, err)
+					return nil, fmt.Errorf("%s: module %s: parse submodule %s: %w", filePath, baseAddr, modName, err)
 				}
 				maps.Copy(rl, submodRL)
 			}
 		}
 
 		// Finally, add the resource or module to the locations map.
-		rl[resAddr] = &Location{File: fp, Line: block.DefRange.Start.Line}
+		rl[resAddr] = &Location{File: filePath, Line: block.DefRange.Start.Line}
 	}
 
 	return rl, nil
 }
 
-func parseModuleDir(files fs.FS, dir string) (map[string]*hcl.File, error) {
+func readModuleFromDir(files fs.FS, dir string) (map[string]*hcl.File, error) {
 	fds, err := fs.ReadDir(files, dir)
 	if err != nil {
 		return nil, err
