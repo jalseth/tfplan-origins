@@ -27,6 +27,9 @@ go.work.sum
 # env file
 .env
 
+# Default output file name for the CLI.
+tfplan_origins.json
+
 # Editor/IDE
 # .idea/
 # .vscode/
