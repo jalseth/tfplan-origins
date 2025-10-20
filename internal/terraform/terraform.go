@@ -129,7 +129,7 @@ func parseBlocks(fs fs.FS, file *hcl.File, fileName, dir, modAddr string) (Locat
 func parseModuleDir(files fs.FS, dir string) (map[string]*hcl.File, error) {
 	fds, err := fs.ReadDir(files, dir)
 	if err != nil {
-		return nil, fmt.Errorf("read dir %s: %w", dir, err)
+		return nil, err
 	}
 
 	mod := make(map[string]*hcl.File)
