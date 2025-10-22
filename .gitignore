@@ -30,6 +30,9 @@ go.work.sum
 # Default output file name for the CLI.
 tfplan_origins.json
 
+# Binaries
+merge_with_plan
+
 # Editor/IDE
 # .idea/
 # .vscode/
