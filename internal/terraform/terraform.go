@@ -47,11 +47,10 @@ func parseDir(fs fs.FS, dir string, modAddr string) (Locations, error) {
 		baseAddr = modAddr + "."
 	}
 	resourceLocations := make(Locations)
-	for name, file := range mod {
-		fp := filepath.Join(dir, name)
-		rl, err := parseBlocks(fs, file, fp, baseAddr)
+	for filePath, file := range mod {
+		rl, err := parseBlocks(fs, file, filePath, baseAddr)
 		if err != nil {
-			return nil, fmt.Errorf("parse modules for %s: %w", filepath.Join(dir, name), err)
+			return nil, fmt.Errorf("parse modules for %s: %w", filePath, err)
 		}
 		maps.Copy(resourceLocations, rl)
 	}
@@ -149,7 +148,7 @@ func readModuleFromDir(files fs.FS, dir string) (map[string]*hcl.File, error) {
 		if diag.HasErrors() {
 			return nil, fmt.Errorf("parse %s: %w", fp, diag)
 		}
-		mod[fd.Name()] = parsed
+		mod[fp] = parsed
 	}
 
 	return mod, nil

@@ -39,6 +39,10 @@ func realMain(cfg *config) error {
 	if err != nil {
 		return err
 	}
+	for _, loc := range locs {
+		loc.File = "/" + loc.File
+	}
+
 	by, err := json.MarshalIndent(locs, "", "  ")
 	if err != nil {
 		return err
