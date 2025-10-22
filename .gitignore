@@ -31,6 +31,7 @@ go.work.sum
 tfplan_origins.json
 
 # Binaries
+parse_locations
 merge_with_plan
 
 # Editor/IDE
