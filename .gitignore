@@ -28,6 +28,7 @@ go.work.sum
 .env
 
 **/.terraform
+**/.terraform.lock*
 
 # Default output file name for the CLI.
 tfplan_origins.json
