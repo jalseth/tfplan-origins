@@ -9,6 +9,7 @@ const (
 	resourceChangesField = "resource_changes"
 	addressField         = "address"
 	locationField        = "_loc"
+	fieldLocField        = "_field_loc"
 )
 
 func MergeLocationsIntoPlan(locs Locations, plan map[string]any) error {
@@ -52,10 +53,41 @@ func MergeLocationsIntoPlan(locs Locations, plan map[string]any) error {
 				break
 			}
 		}
+		if fl := fieldLocations(locs, rc, addr); fl != nil {
+			rc[fieldLocField] = fl
+		}
 		rcs = append(rcs, rc)
 	}
 
 	plan[resourceChangesField] = rcs
 
 	return nil
+}
+
+func fieldLocations(locs Locations, rc map[string]any, addr string) Locations {
+	change, ok := rc["change"]
+	if !ok {
+		return nil
+	}
+	ch, ok := change.(map[string]any)
+	if !ok {
+		return nil
+	}
+	after, ok := ch["after"]
+	if !ok {
+		return nil
+	}
+	a, ok := after.(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	fl := make(Locations)
+	for field := range a {
+		fieldAddr := addr + "#" + field
+		if loc, ok := locs[fieldAddr]; ok {
+			fl[fieldAddr] = loc
+		}
+	}
+	return fl
 }

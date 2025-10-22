@@ -39,20 +39,39 @@ func TestMergeLocationsIntoPlan(t *testing.T) {
 		{
 			desc: "simple one-to-one",
 			locs: Locations{
-				"foo.bar": {File: "foo.tf", Line: 123},
+				"foo.bar":   {File: "foo.tf", Line: 123},
+				"foo.bar#a": {File: "foo.tf", Line: 124},
 			},
 			plan: tfjson.Plan{
 				ResourceChanges: []*tfjson.ResourceChange{
-					{Address: "foo.bar"},
+					{
+						Address: "foo.bar",
+						Change: &tfjson.Change{
+							After: map[string]any{
+								"a": 1,
+								"b": 2,
+							},
+						},
+					},
 				},
 			},
 			want: map[string]any{
 				resourceChangesField: []map[string]any{
 					{
 						addressField: "foo.bar",
+						"change": map[string]any{
+							"after": map[string]any{
+								"a": float64(1),
+								"b": float64(2),
+							},
+							"before": nil,
+						},
 						locationField: &Location{
 							File: "foo.tf",
 							Line: 123,
+						},
+						fieldLocField: Locations{
+							"foo.bar#a": &Location{File: "foo.tf", Line: 124},
 						},
 					},
 				},
