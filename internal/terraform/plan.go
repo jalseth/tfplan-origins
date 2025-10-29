@@ -16,12 +16,12 @@ func MergeLocationsIntoPlan(locs Locations, plan map[string]any) error {
 	if len(locs) == 0 {
 		return fmt.Errorf("locations must be supplied")
 	}
-	if plan == nil || plan[resourceChangesField] == nil {
-		return fmt.Errorf("plan with %s must be supplied", resourceChangesField)
+	if plan == nil {
+		return fmt.Errorf("plan must be supplied")
 	}
-	resourceChanges, ok := plan[resourceChangesField].([]any)
+	resourceChanges, ok := lookup[[]any](plan, resourceChangesField)
 	if !ok {
-		return fmt.Errorf("%s: not a list", resourceChangesField)
+		return fmt.Errorf("plan is missing required field: %s", resourceChangesField)
 	}
 
 	rcs := make([]map[string]any, 0, len(resourceChanges))
@@ -30,14 +30,9 @@ func MergeLocationsIntoPlan(locs Locations, plan map[string]any) error {
 		if !ok {
 			return fmt.Errorf("%s: %d: not an object", resourceChangesField, i)
 		}
-
-		address, ok := rc[addressField]
+		addr, ok := lookup[string](rc, "address")
 		if !ok {
-			return fmt.Errorf("%s: %d: missing %q", resourceChangesField, i, addressField)
-		}
-		addr, ok := address.(string)
-		if !ok {
-			return fmt.Errorf("%s: %d: address is not a string: %v", resourceChangesField, i, address)
+			return fmt.Errorf("%s: %d: address must be present", resourceChangesField, i)
 		}
 
 		// We may have a partial match for modules where the source is not available.
@@ -65,29 +60,27 @@ func MergeLocationsIntoPlan(locs Locations, plan map[string]any) error {
 }
 
 func fieldLocations(locs Locations, rc map[string]any, addr string) Locations {
-	change, ok := rc["change"]
+	change, ok := lookup[map[string]any](rc, "change")
 	if !ok {
 		return nil
 	}
-	ch, ok := change.(map[string]any)
-	if !ok {
-		return nil
-	}
-	after, ok := ch["after"]
-	if !ok {
-		return nil
-	}
-	a, ok := after.(map[string]any)
+	after, ok := lookup[map[string]any](change, "after")
 	if !ok {
 		return nil
 	}
 
 	fl := make(Locations)
-	for field := range a {
+	for field := range after {
 		fieldAddr := addr + "#" + field
 		if loc, ok := locs[fieldAddr]; ok {
 			fl[fieldAddr] = loc
 		}
 	}
 	return fl
+}
+
+func lookup[T any](m map[string]any, k string) (value T, ok bool) {
+	v, ok := m[k]
+	value, ok = v.(T)
+	return
 }
