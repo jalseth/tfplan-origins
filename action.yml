@@ -1,0 +1,109 @@
+name: 'tfplan-origins'
+description: 'Map resources in a Terraform plan back to their origin source files'
+
+inputs:
+  terraform-dir:
+    description: 'Root Terraform config directory (passed as -dir to parse_locations)'
+    required: false
+    default: '.'
+  plan-json:
+    description: 'Path to terraform plan JSON (output of `terraform show -json`)'
+    required: true
+  output-file:
+    description: 'Path where enriched plan JSON will be written'
+    required: false
+    default: 'enriched_plan.json'
+  go-version:
+    description: 'Go version for building the tools'
+    required: false
+    default: '1.25'
+  cache:
+    description: 'Cache the built binaries between runs'
+    required: false
+    default: 'true'
+
+outputs:
+  enriched-plan-file:
+    description: 'Absolute path to the enriched plan JSON'
+    value: ${{ steps.paths.outputs.enriched-plan-file }}
+
+runs:
+  using: 'composite'
+  steps:
+    - id: 'paths'
+      shell: 'bash'
+      env:
+        INPUTS_OUTPUT_FILE: '${{ inputs.output-file }}'
+      run: |
+        ACTION_PATH="$(realpath "${GITHUB_ACTION_PATH}")"
+        BIN_DIR="${RUNNER_TEMP}/tfplan-origins-bin"
+        LOCS_FILE="${RUNNER_TEMP}/tfplan-origins-locations.json"
+        OUTPUT="${INPUTS_OUTPUT_FILE}"
+        if [[ "$OUTPUT" != /* ]]; then
+          OUTPUT="${GITHUB_WORKSPACE}/${OUTPUT}"
+        fi
+        echo "action-path=${ACTION_PATH}" >> "$GITHUB_OUTPUT"
+        echo "bin-dir=${BIN_DIR}" >> "$GITHUB_OUTPUT"
+        echo "locs-file=${LOCS_FILE}" >> "$GITHUB_OUTPUT"
+        echo "enriched-plan-file=${OUTPUT}" >> "$GITHUB_OUTPUT"
+
+    - name: 'compute binary cache key'
+      id: 'bin-cache-key'
+      if: inputs.cache == 'true'
+      shell: 'bash'
+      env:
+        STEPS_PATHS_OUTPUTS_ACTION_PATH: '${{ steps.paths.outputs.action-path }}'
+        INPUTS_GO_VERSION: '${{ inputs.go-version }}'
+      run: |
+        HASH="${{ hashFiles('**/*.go', 'go.sum') }}"
+        echo "key=tfplan-origins-${{ runner.os }}-${{ runner.arch }}-${INPUTS_GO_VERSION}-${HASH}" >> "$GITHUB_OUTPUT"
+
+    - name: 'restore binary cache'
+      id: bin-cache
+      if: inputs.cache == 'true'
+      uses: 'actions/cache@5a3ec84eff668545956fd18022155c47e93e2684' # ratchet:actions/cache@v4
+      with:
+        path: '${{ steps.paths.outputs.bin-dir }}'
+        key: '${{ steps.bin-cache-key.outputs.key }}'
+
+    - name: 'setup go'
+      if: inputs.cache != 'true' || steps.bin-cache.outputs.cache-hit != 'true'
+      uses: 'actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00' # ratchet:actions/setup-go@v6
+      with:
+        go-version: '${{ inputs.go-version }}'
+        cache-dependency-path: '${{ steps.paths.outputs.action-path }}/go.sum'
+
+    - name: 'build binaries'
+      if: inputs.cache != 'true' || steps.bin-cache.outputs.cache-hit != 'true'
+      shell: bash
+      working-directory: '${{ steps.paths.outputs.action-path }}'
+      env:
+        STEPS_PATHS_OUTPUTS_BIN_DIR: '${{ steps.paths.outputs.bin-dir }}'
+      run: |
+        mkdir -p "${STEPS_PATHS_OUTPUTS_BIN_DIR}"
+        go build -o "${STEPS_PATHS_OUTPUTS_BIN_DIR}/parse_locations" ./cmd/parse_locations
+        go build -o "${STEPS_PATHS_OUTPUTS_BIN_DIR}/merge_with_plan" ./cmd/merge_with_plan
+
+    - name: 'parse locations'
+      shell: bash
+      env:
+        INPUTS_TERRAFORM_DIR: ${{ inputs.terraform-dir }}
+        STEPS_PATHS_OUTPUTS_BIN_DIR: ${{ steps.paths.outputs.bin-dir }}
+        STEPS_PATHS_OUTPUTS_LOCS_FILE: ${{ steps.paths.outputs.locs-file }}
+      run: |
+        "${STEPS_PATHS_OUTPUTS_BIN_DIR}/parse_locations" \
+          -dir="${INPUTS_TERRAFORM_DIR}" \
+          -out="${STEPS_PATHS_OUTPUTS_LOCS_FILE}"
+
+    - name: 'merge with plan'
+      shell: bash
+      env:
+        INPUTS_TERRAFORM_PLAN: '${{ inputs.plan-json }}'
+        STEPS_PATHS_OUTPUTS_BIN_DIR: '${{ steps.paths.outputs.bin-dir }}'
+        STEPS_PATHS_OUTPUTS_LOCS_FILE: '${{ steps.paths.outputs.locs-file }}'
+        STEPS_PATHS_OUTPUTS_ENRICHED_PLAN_FILE: '${{ steps.paths.outputs.enriched-plan-file }}'
+      run: |
+        "${STEPS_PATHS_OUTPUTS_BIN_DIR}/merge_with_plan" \
+          -locs="${STEPS_PATHS_OUTPUTS_LOCS_FILE}" \
+          -plan="${INPUTS_TERRAFORM_PLAN}" \
+          -out="${STEPS_PATHS_OUTPUTS_ENRICHED_PLAN_FILE}"
